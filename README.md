@@ -18,7 +18,7 @@ A real-time system that watches your infrastructure (APIs, databases, caches, me
 ## Quick Start
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/vinay1359/Incident-Management-System.git
 cd ims
 docker compose up --build
 ```
@@ -42,7 +42,7 @@ pip install httpx
 python simulate_failure.py
 ```
 
-This sends 150 database failure signals and 80 MCP host failure signals. Thanks to debouncing, only 2 incidents get created (not 230).
+This sends signals for 4 different infrastructure components (RDBMS, MCP host, Cache, Queue). Thanks to debouncing, only 4 incidents get created (not 650+), demonstrating how the system groups related error signals together.
 
 ---
 
@@ -108,16 +108,6 @@ flowchart TD
 │  └──────────────┘    └──────────────┘    └──────────────┘               │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
-
-## Handling Backpressure
-
-The system is designed to handle massive spikes in signal volume without crashing or overwhelming downstream databases. This is achieved through strict backpressure mechanisms:
-1. **Asynchronous Queueing**: All incoming signals are instantly dumped into an in-memory `asyncio.Queue`. The HTTP response is returned immediately to the client without waiting for database operations.
-2. **Batch Processing**: A dedicated background worker pulls signals from the queue in batches, significantly reducing database connection overhead and context switching.
-3. **Aggressive Debouncing**: Before touching the persistent databases, the worker checks Redis. If an active incident already exists for a given component, it skips creating a new PostgreSQL row and simply increments a counter, gracefully absorbing "alert storms."
-4. **Exponential Backoff**: If PostgreSQL or MongoDB experience transient latency spikes under load, the worker employs exponential backoff retries, ensuring no data is dropped while giving the database time to recover.
-
----
 
 ## How It Works
 
@@ -188,6 +178,16 @@ The system is built to handle bursts of 10,000+ signals per second without crash
 
 ---
 
+## Handling Backpressure
+
+The system is designed to handle massive spikes in signal volume without crashing or overwhelming downstream databases. This is achieved through strict backpressure mechanisms:
+1. **Asynchronous Queueing**: All incoming signals are instantly dumped into an in-memory `asyncio.Queue`. The HTTP response is returned immediately to the client without waiting for database operations.
+2. **Batch Processing**: A dedicated background worker pulls signals from the queue in batches, significantly reducing database connection overhead and context switching.
+3. **Aggressive Debouncing**: Before touching the persistent databases, the worker checks Redis. If an active incident already exists for a given component, it skips creating a new PostgreSQL row and simply increments a counter, gracefully absorbing "alert storms."
+4. **Exponential Backoff**: If PostgreSQL or MongoDB experience transient latency spikes under load, the worker employs exponential backoff retries, ensuring no data is dropped while giving the database time to recover.
+
+---
+
 ## API Reference
 
 | Method | Endpoint | What It Does |
@@ -200,35 +200,7 @@ The system is built to handle bursts of 10,000+ signals per second without crash
 | `GET` | `/api/incidents/{id}/rca` | View the RCA for an incident |
 | `GET` | `/health` | System health + throughput metrics |
 
-### Example: Send a Signal
 
-```bash
-curl -X POST http://localhost:8000/api/signals \
-  -H "Content-Type: application/json" \
-  -d '{
-    "component_id": "RDBMS_PRIMARY",
-    "component_type": "RDBMS",
-    "severity": "P0",
-    "message": "Connection pool exhausted",
-    "metadata": {"pool_size": 20, "active": 20}
-  }'
-```
-
-### Example: Submit an RCA
-
-```bash
-curl -X POST http://localhost:8000/api/incidents/{id}/rca \
-  -H "Content-Type: application/json" \
-  -d '{
-    "incident_start": "2025-01-15T10:00:00Z",
-    "incident_end": "2025-01-15T10:45:00Z",
-    "root_cause_category": "HARDWARE",
-    "fix_applied": "Replaced the faulty disk controller and restored from backup",
-    "prevention_steps": "Added proactive disk health monitoring with SMART alerts"
-  }'
-```
-
----
 
 ## Running Tests
 
